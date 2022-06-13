@@ -1,0 +1,247 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: Central account Lake Formation setups for cross-account sharing scenario
+
+Parameters:
+  DataMeshOwnerUserName:
+    Type: String
+    Description: IAM user name to be created for data lake admin.
+    Default: DataMeshOwner
+    AllowedPattern: '[\w+=,.@-]+'
+    MinLength: '1'
+    MaxLength: '64'
+    ConstraintDescription: the user name must be between 1 and 64 characters
+  DataMeshOwnerUserPassword:
+    Type: String
+    Description: IAM user console password for data lake admin.
+    NoEcho: 'true'
+    AllowedPattern: >-
+      ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+-\[\]\{\}|???])[A-Za-z\d!@#$%^&*()_+-\[\]\{\}|???]{8,}$
+    ConstraintDescription: >-
+      Password should be a min. of 8 characters, include a min. of three of the
+      following mix of character types: uppercase, lowercase, numbers,
+      non-alphanumeric symbols
+    Description: >-
+      Password for Data Steward user. Should be a min. of 8 characters, include
+      a min. of three of the following mix of character types: uppercase,
+      lowercase, numbers, non-alphanumeric symbols, for example
+      !@#$%^&*()_+-[]{}|??? and not be identical to your AWS account name or
+      email address
+  ProducerStewardUserName:
+    Type: String
+    Description: IAM user name to be created for data lake admin.
+    Default: ProducerSteward
+    AllowedPattern: '[\w+=,.@-]+'
+    MinLength: '1'
+    MaxLength: '64'
+    ConstraintDescription: the user name must be between 1 and 64 characters
+  ProducerStewardUserPassword:
+    Type: String
+    Description: IAM user console password for data lake admin.
+    NoEcho: 'true'
+    AllowedPattern: >-
+      ^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*()_+-\[\]\{\}|???])[A-Za-z\d!@#$%^&*()_+-\[\]\{\}|???]{8,}$
+    ConstraintDescription: >-
+      Password should be a min. of 8 characters, include a min. of three of the
+      following mix of character types: uppercase, lowercase, numbers,
+      non-alphanumeric symbols
+    Description: >-
+      Password for Data Steward user. Should be a min. of 8 characters, include
+      a min. of three of the following mix of character types: uppercase,
+      lowercase, numbers, non-alphanumeric symbols, for example
+      !@#$%^&*()_+-[]{}|??? and not be identical to your AWS account name or
+      email address
+  ProducerAWSAccount:
+    Type: String
+    Description: Account Number of the Producer Account for sharing cross account access.
+  
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      -
+        Label:
+          default: IAM User Configuration
+        Parameters:
+          - DataMeshOwnerUserName
+          - DataMeshOwnerUserPassword
+          - ProducerStewardUserName
+          - ProducerStewardUserPassword
+      -
+        Label:
+          default: Data Lake Configuration
+        Parameters:
+          - ProducerAWSAccount
+
+Resources:
+
+  DatalakeAdminGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLakeFormationDataAdmin
+        - arn:aws:iam::aws:policy/AWSLakeFormationCrossAccountManager
+        - arn:aws:iam::aws:policy/AmazonAthenaFullAccess
+        - arn:aws:iam::aws:policy/IAMReadOnlyAccess     
+
+
+  DatalakeAdminUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref DataMeshOwnerUserName
+      LoginProfile:
+        Password: !Ref DataMeshOwnerUserPassword
+      Groups:
+        - !Ref DatalakeAdminGroup
+            
+  DatalakeProducerStewardGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AWSLakeFormationCrossAccountManager
+      Policies:
+      - PolicyDocument:
+          Statement:
+            - Action:
+                - 'lakeformation:*'
+                - 'cloudtrail:DescribeTrails'
+                - 'cloudtrail:LookupEvents'
+                - 'glue:GetDatabase'
+                - 'glue:CreateDatabase'
+                - 'glue:UpdateDatabase'
+                - 'glue:DeleteDatabase'
+                - 'glue:SearchTables'
+                - 'glue:CreateTable'
+                - 'glue:UpdateTable'
+                - 'glue:DeleteTable'
+                - 'glue:Get*'
+                - 'glue:List*'
+                - 'glue:BatchGetWorkflows'
+                - 'glue:DeleteWorkflow'
+                - 'glue:GetWorkflowRuns'
+                - 'glue:StartWorkflowRun'
+                - 'glue:GetWorkflow'
+                - 's3:ListBucket'
+                - 's3:GetBucketLocation'
+                - 's3:ListAllMyBuckets'
+                - 's3:GetBucketAcl'
+                - 'iam:ListUsers'
+                - 'iam:ListRoles'
+                - 'iam:GetRole'
+                - 'iam:GetRolePolicy'
+                - 'iam:PutRolePolicy'
+                - 'iam:CreateServiceLinkedRole'
+                - 'cloudformation:*'
+                - 'elasticmapreduce:*'
+                - 'tag:Get*'
+                - 'glue:BatchGetCrawlers'
+              Effect: Allow
+              Resource: '*'
+        PolicyName: DatalakeProducerStewardGroupPolicy
+
+  DatalakeProducerSteward:
+    DependsOn: DatalakeProducerStewardGroup
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Ref ProducerStewardUserName
+      LoginProfile:
+        Password: !Ref ProducerStewardUserPassword
+      Groups:
+        - !Ref DatalakeProducerStewardGroup
+
+  LFDataLakeSettings:
+    Type: AWS::LakeFormation::DataLakeSettings
+    Properties:
+      Admins:
+        - DataLakePrincipalIdentifier: !GetAtt 'DatalakeAdminUser.Arn'
+        
+
+  LFDataLakeLocationCredit:
+    Type: AWS::LakeFormation::Resource
+    Properties:
+      ResourceArn: !Sub arn:aws:s3:::credit-card-lf-${ProducerAWSAccount}-${AWS::Region}
+      RoleArn: !GetAtt 'LFRegisterLocationServiceRole.Arn'
+      UseServiceLinkedRole: false
+      
+  CreateCreditDatabase:
+    Type: AWS::Glue::Database
+    Properties: 
+      CatalogId: !Ref AWS::AccountId
+      DatabaseInput: 
+        Name: credit-card
+
+  CreditDatabasePermission:
+    DependsOn: CreateCreditDatabase
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !GetAtt 'DatalakeProducerSteward.Arn'
+      Permissions:
+        - ALL
+      PermissionsWithGrantOption:
+        - ALL
+      Resource:
+        DatabaseResource:
+          Name: !Ref CreateCreditDatabase
+  
+  CreditDataLocationPermission:
+    DependsOn: LFDataLakeLocationCredit
+    Type: AWS::LakeFormation::Permissions
+    Properties:
+      DataLakePrincipal:
+        DataLakePrincipalIdentifier: !Ref ProducerAWSAccount
+      Permissions: 
+        - DATA_LOCATION_ACCESS
+      PermissionsWithGrantOption: 
+        - DATA_LOCATION_ACCESS
+      Resource:
+        DataLocationResource:
+          S3Resource: !Sub arn:aws:s3:::credit-card-lf-${ProducerAWSAccount}-${AWS::Region}
+
+
+  LFRegisterLocationServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lakeformation.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+
+  S3DataLakePolicy:
+    DependsOn: LFRegisterLocationServiceRole
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "S3DataLakePolicy"
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          -
+            Effect: "Allow"
+            Action:
+              - lakeformation:RegisterResource
+            Resource: 
+              - !Sub arn:aws:s3:::credit-card-lf-${ProducerAWSAccount}-${AWS::Region}
+          -
+            Effect: "Allow"
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+            Resource: 
+              - !Sub arn:aws:s3:::credit-card-lf-${ProducerAWSAccount}-${AWS::Region}/*
+          -
+            Effect: "Allow"
+            Action:
+              - s3:ListBucket
+            Resource: 
+              - !Sub arn:aws:s3:::credit-card-lf-${ProducerAWSAccount}-${AWS::Region}
+      Roles: 
+        - !Ref LFRegisterLocationServiceRole
+
+Outputs:
+  LFRegisterLocationServiceRole:
+    Value: !Ref LFRegisterLocationServiceRole
