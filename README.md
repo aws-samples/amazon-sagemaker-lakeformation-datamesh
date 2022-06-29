@@ -1,5 +1,5 @@
 ### Project status: 
-All the basics are done, we are planning to continously add extra content while we keep developping this
+This repository is linked to a 2 part blog series titled 'Build and train ML models with a data mesh design pattern on AWS
 # Practice ML in a Data Mesh environment
 ## Description
 This project allows to:
